@@ -1,0 +1,6 @@
+[submodule "cppsocket"]
+	path = cppsocket
+	url = git@github.com:ASjet/cppsocket
+[submodule "zlib"]
+	path = zlib
+	url = git@github.com:ASjet/zlib
