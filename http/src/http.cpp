@@ -9,7 +9,7 @@
 using std::byte;
 using std::string;
 
-const size_t CHUNK = 0x4000;
+constexpr size_t CHUNK = 0x4000;
 const uint32_t HEADER_SPLIT = htonl(0x0D0A0D0A);
 const uint16_t CRLF = htons(0x0D0A);
 
@@ -140,14 +140,16 @@ request_msg::request_msg(unique_ptr<byte[]>& buf, size_t size)
 
 request_msg::~request_msg() {}
 ////////////////////////////////////////////////////////////////////////////////
-const string response_header::_date("Date");
+const string response_header::date("Date");
+const string _200_OK(" 200 OK");
 
-response_header::response_header(const string& version, const string& status)
+response_header::response_header(const string& version)
   : fresh(false)
-  , _header(*reinterpret_cast<unordered_map<string, string>*>(this))
-  , _status(version + string(" ") + status)
+  , header(*reinterpret_cast<unordered_map<string, string>*>(this))
+  , version(version)
+  , status(_200_OK)
 {
-  _header[_date] = timestamp();
+  header[date] = timestamp();
 }
 
 string&
@@ -157,13 +159,19 @@ response_header::operator[](const string& rhs)
   return unordered_map<string, string>::operator[](rhs);
 }
 
+void
+response_header::setStatus(const string& stat)
+{
+  status = stat;
+}
+
 string
 response_header::genHeader()
 {
   if (!fresh) {
     cache.clear();
-    cache << _status << "\r\n";
-    for (auto& [k, v] : _header) {
+    cache << version << ' ' << status << "\r\n";
+    for (auto& [k, v] : header) {
       cache << k << ": " << v << "\r\n";
     }
     cache << "\r\n";

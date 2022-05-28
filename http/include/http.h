@@ -92,20 +92,22 @@ private:
 class response_header : public unordered_map<string, string>
 {
 public:
-  response_header(const string& version, const string& status);
+  response_header(const string& version);
   response_header(const response_header& rhs) = delete;
   response_header(const response_header&& rhs) = delete;
   response_header& operator=(const response_header& rhs) = delete;
   response_header& operator=(const response_header&& rhs) = delete;
+  void setStatus(const string& status);
   string genHeader();
   // size_t len();
   string& operator[](const string& rhs);
 
 private:
+  static const string date;
   bool fresh;
-  const string _status;
-  static const string _date;
-  unordered_map<string, string>& _header;
+  string status;
+  const string version;
+  unordered_map<string, string>& header;
   ostringstream cache;
 };
 
