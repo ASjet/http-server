@@ -21,6 +21,7 @@ struct File_Impl
   fd_t fd;
   bool exist;
   std::size_t offset;
+  struct stat st;
 };
 
 void
@@ -41,10 +42,9 @@ File::File(const string& path)
   impl->fd = fd;
   impl->exist = true;
 
-  struct stat st;
-  fstat(fd, &st);
+  fstat(impl->fd, &impl->st);
 
-  if (!(st.st_mode & S_IFREG)) {
+  if (!(impl->st.st_mode & S_IFREG)) {
     impl.release();
     throw std::system_error(EPERM, std::system_category());
   }
@@ -62,6 +62,11 @@ ssize_t
 File::readContent(void* buffer, std::size_t size)
 {
   return read(impl->fd, buffer, size);
+}
+
+ssize_t
+File::size() const {
+  return impl->st.st_size;
 }
 
 #endif
