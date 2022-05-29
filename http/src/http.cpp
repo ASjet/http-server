@@ -169,13 +169,14 @@ string
 response_header::genHeader()
 {
   if (!fresh) {
-    cache.clear();
-    cache << version << ' ' << status << "\r\n";
+    ostringstream os;
+    os << version << ' ' << status << "\r\n";
     for (auto& [k, v] : header) {
-      cache << k << ": " << v << "\r\n";
+      os << k << ": " << v << "\r\n";
     }
-    cache << "\r\n";
+    os << "\r\n";
+    cache = os.str();
   }
   fresh = true;
-  return cache.str();
+  return cache;
 }

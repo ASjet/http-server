@@ -5,7 +5,6 @@
 #include "socket.h"
 #include <ctime>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 
@@ -108,7 +107,7 @@ private:
   string status;
   const string version;
   unordered_map<string, string>& header;
-  ostringstream cache;
+  string cache;
 };
 
 #endif
