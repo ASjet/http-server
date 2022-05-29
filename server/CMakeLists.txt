@@ -10,6 +10,7 @@ include_directories(
 add_library(
     ${PROJECT_NAME}
     src/uuid.cpp
+    src/file.cpp
 )
 
 target_link_libraries(
