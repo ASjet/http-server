@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 ////////////////////////////////////////////////////////////////////////////////
 using std::cin;
@@ -17,7 +18,7 @@ using std::endl;
 using std::string;
 using std::vector;
 using namespace cppsocket;
-const std::size_t BUF_SIZE = 0x40000;
+const std::size_t BUF_SIZE = 0x4000;
 const string root("/");
 const string _index("./index.html");
 const string dot(".");
@@ -40,6 +41,71 @@ send4(Connection* conn, const string& version, int status)
   conn->send(r.c_str(), r.size());
 }
 
+void
+worker(Connection* conn)
+{
+  addr_t peer = conn->getAddr();
+  printf("###Connection to %s:%hu established###\n",
+         peer.ipaddr.c_str(), peer.port);
+
+  auto cache = std::make_unique<byte[]>(BUF_SIZE);
+
+  while (conn->isConnecting()) {
+    std::unique_ptr<byte[]> buf = getBuffer();
+    auto cnt = conn->recv(buf.get(), BUF_SIZE);
+    if (0 == cnt)
+      break;
+
+    request_msg request(buf, BUF_SIZE);
+    request_header& header = request.header;
+    if(!header.valid) {
+      continue;
+    }
+
+    printf("----------Request Message----------\n");
+    printf("%s %s %s\n",
+           header.method().c_str(),
+           header.path().c_str(),
+           header.version().c_str());
+    for (auto& [k, v] : header) {
+      printf("%s: %s\n", k.c_str(), v.c_str());
+    }
+    printf("-----------------------------------\n\n");
+
+    response_header res(header.version());
+    res["Server"] = "http-server";
+
+    try {
+      string path((header.path() == root) ? _index : (dot + header.path()));
+      File f(path);
+      if (!f.exist()) {
+        send4(conn, header.version(), 4);
+        break;
+      }
+
+      ostringstream os;
+      os << f.size();
+      res["Content-Length"] = os.str();
+      res.setStatus("200 OK");
+      string r = res.genHeader();
+      printf("++++++++++Response Header++++++++++\n");
+      printf("%s", r.c_str());
+      conn->send(r.c_str(), r.size());
+      printf("+++++++++++++++++++++++++++++++++++\n\n");
+
+      int cnt = 0;
+      while (0 < (cnt = f.readContent(cache.get(), BUF_SIZE))) {
+        conn->send(cache.get(), cnt);
+      }
+    } catch (std::system_error& e) {
+      send4(conn, header.version(), 3);
+      break;
+    }
+  }
+  printf("###Connection to %s:%hu closed###\n", peer.ipaddr.c_str(), peer.port);
+  conn->close();
+}
+
 int
 main(int argc, char** argv)
 {
@@ -51,7 +117,7 @@ main(int argc, char** argv)
 
   Socket s(ip_v::IPv4, proto_t::TCP);
   try {
-    s.listen(port, 1);
+    s.listen(port, 20);
     printf("Listening on %hu\n", port);
   } catch (std::system_error& e) {
     s.close();
@@ -62,61 +128,14 @@ main(int argc, char** argv)
 
   while (true) {
     Connection* conn = s.accept();
-    if (conn == nullptr)
+    if (conn != nullptr) {
+      std::thread t(worker, conn);
+      t.detach();
+    } else {
       break;
-
-    addr_t peer = conn->getAddr();
-    printf(
-      "Connection with %s:%hu established\n", peer.ipaddr.c_str(), peer.port);
-
-    auto cache = std::make_unique<byte[]>(BUF_SIZE);
-
-    while (conn->isConnecting()) {
-      std::unique_ptr<byte[]> buf = getBuffer();
-      auto cnt = conn->recv(buf.get(), BUF_SIZE);
-      if (0 == cnt)
-        break;
-
-      request_msg request(buf, BUF_SIZE);
-      request_header& header = request.header;
-
-      printf("Method: %s\n", header.method().c_str());
-      printf("Path: %s\n", header.path().c_str());
-      printf("Version: %s\n", header.version().c_str());
-      for (auto& [k, v] : header) {
-        printf("%s: %s\n", k.c_str(), v.c_str());
-      }
-
-      response_header res(header.version());
-      res["Server"] = "http-server";
-
-      try {
-        string path((header.path() == root) ? _index : (dot + header.path()));
-        File f(path);
-        if (!f.exist()) {
-          send4(conn, header.version(), 4);
-          break;
-        }
-
-        int cnt;
-        while (0 < (cnt = f.readContent(cache.get(), BUF_SIZE))) {
-          ostringstream os;
-          os << cnt;
-          res["Content-Length"] = os.str();
-          string r = res.genHeader();
-          printf("%s\n", r.c_str());
-          conn->send(r.c_str(), r.size());
-          conn->send(cache.get(), cnt);
-        }
-      } catch (std::system_error& e) {
-        send4(conn, header.version(), 3);
-        break;
-      }
     }
-    printf("Connection closed\n");
-    conn->close();
   }
-
+  s.close();
   printf("Web server shutdown\n");
   return 0;
 }
