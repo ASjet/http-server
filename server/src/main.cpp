@@ -1,6 +1,7 @@
-#include "file.h"
 #include "http.h"
 #include "socket.h"
+#include <filesystem>
+#include <fstream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -17,11 +18,12 @@ using std::cout;
 using std::endl;
 using std::string;
 using std::vector;
-using namespace cppsocket;
 const std::size_t BUF_SIZE = 0x4000;
 const string root("/");
 const string _index("./index.html");
 const string dot(".");
+namespace fs = std::filesystem;
+using namespace cppsocket;
 ////////////////////////////////////////////////////////////////////////////////
 void
 send4(Connection* conn, const string& version, int status)
@@ -41,6 +43,26 @@ send4(Connection* conn, const string& version, int status)
   conn->send(r.c_str(), r.size());
 }
 
+void sendFile(Connection* conn, fs::path& path) {
+    response_header res("HTTP/1.1");
+    res["Server"] = "http-server";
+
+    ifstream f(path, std::ios::binary);
+    auto cache = std::make_unique<char[]>(BUF_SIZE);
+    res["Content-Length"] = std::to_string(fs::file_size(path));
+    res.setStatus("200 OK");
+    string r = res.genHeader();
+    printf("++++++++++Response Header++++++++++\n");
+    printf("%s", r.c_str());
+    conn->send(r.c_str(), r.size());
+    printf("+++++++++++++++++++++++++++++++++++\n\n");
+
+    int cnt = 0;
+    while (0 < (cnt = f.readsome(cache.get(), BUF_SIZE))) {
+      conn->send(cache.get(), cnt);
+    }
+}
+
 void
 worker(Connection* conn)
 {
@@ -48,7 +70,6 @@ worker(Connection* conn)
   printf("###Connection to %s:%hu established###\n",
          peer.ipaddr.c_str(), peer.port);
 
-  auto cache = std::make_unique<byte[]>(BUF_SIZE);
 
   while (conn->isConnecting()) {
     std::unique_ptr<byte[]> buf = getBuffer();
@@ -72,30 +93,20 @@ worker(Connection* conn)
     }
     printf("-----------------------------------\n\n");
 
-    response_header res(header.version());
-    res["Server"] = "http-server";
-
     try {
       string path((header.path() == root) ? _index : (dot + header.path()));
-      File f(path);
-      if (!f.exist()) {
+      fs::path p(path);
+      if (!fs::exists(p)) {
         send4(conn, header.version(), 4);
         break;
       }
-
-      ostringstream os;
-      os << f.size();
-      res["Content-Length"] = os.str();
-      res.setStatus("200 OK");
-      string r = res.genHeader();
-      printf("++++++++++Response Header++++++++++\n");
-      printf("%s", r.c_str());
-      conn->send(r.c_str(), r.size());
-      printf("+++++++++++++++++++++++++++++++++++\n\n");
-
-      int cnt = 0;
-      while (0 < (cnt = f.readContent(cache.get(), BUF_SIZE))) {
-        conn->send(cache.get(), cnt);
+      fs::file_status stat = fs::status(p);
+      switch(stat.type()) {
+        case fs::file_type::regular:
+          sendFile(conn, p);
+          break;
+        default:
+          break;
       }
     } catch (std::system_error& e) {
       send4(conn, header.version(), 3);
