@@ -22,6 +22,7 @@ const std::size_t BUF_SIZE = 0x4000;
 const string root("/");
 const string _index("./index.html");
 const string dot(".");
+const string current("./");
 namespace fs = std::filesystem;
 using namespace cppsocket;
 ////////////////////////////////////////////////////////////////////////////////
@@ -63,6 +64,39 @@ void sendFile(Connection* conn, fs::path& path) {
     }
 }
 
+void sendDir(Connection* conn, fs::path& path) {
+    response_header res("HTTP/1.1");
+    res["Server"] = "http-server";
+
+    string prefix = path.string().substr(1) + root;
+    string parent = path.parent_path().string().substr(1);
+    if(parent.size() == 0)
+      parent = root;
+
+    std::stringstream ss;
+    ss << "<html><head><title>Index of " << path.string() << "</title></head>\n<body>\n<h1>Index of "
+       << path.string() << "</h1>\n<hr><pre>" << "<a href=\"" << parent << "\">..</a>\n";
+
+    for (auto& p : fs::directory_iterator(path)) {
+        string name(p.path().filename().string());
+        ss << "<a href=\"" << prefix + name << "\">" << current + name << "</a>\n";
+    }
+
+    ss << "</pre><hr></body></html>";
+
+    string body = ss.str();
+    res["Content-Length"] = std::to_string(body.size());
+
+    string r = res.genHeader();
+    printf("++++++++++Response Header++++++++++\n");
+    printf("%s", r.c_str());
+    conn->send(r.c_str(), r.size());
+    printf("+++++++++++++++++++++++++++++++++++\n\n");
+
+    printf("Body: %s\n",body.c_str());
+    conn->send(body.c_str(), body.size());
+}
+
 void
 worker(Connection* conn)
 {
@@ -94,17 +128,27 @@ worker(Connection* conn)
     printf("-----------------------------------\n\n");
 
     try {
-      string path((header.path() == root) ? _index : (dot + header.path()));
-      fs::path p(path);
+      fs::path p(current);
+      if(header.path() == root) {
+        // If index.html exists, send it.
+        if(fs::exists(fs::path(_index))) {
+          p = _index;
+        }
+      } else {
+        p /= header.path().substr(1);
+      }
+
       if (!fs::exists(p)) {
-        send4(conn, header.version(), 4);
-        break;
+          send4(conn, header.version(), 4);
+          break;
       }
       fs::file_status stat = fs::status(p);
       switch(stat.type()) {
         case fs::file_type::regular:
           sendFile(conn, p);
           break;
+        case fs::file_type::directory:
+          sendDir(conn, p);
         default:
           break;
       }
